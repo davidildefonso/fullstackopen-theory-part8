@@ -1,0 +1,6 @@
+POST http://localhost:4000
+content-type: application/json
+
+{
+	"query": "query { allPersons { name } }" 
+}
