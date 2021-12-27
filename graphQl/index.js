@@ -5,10 +5,13 @@ import  mongoose from 'mongoose'
 import Person from './models/person.js'
 import User from './models/user.js'
 import jwt from 'jsonwebtoken'
+import  dotenv from 'dotenv'
 
-const JWT_SECRET = 'NEED_HERE_A_SECRET_KEY'
 
-const MONGODB_URI = 
+dotenv.config()
+
+const MONGODB_URI = process.env.MONGODB_URI 
+const JWT_SECRET =  process.env.JWT_SECRET 
 
 console.log('connecting to', MONGODB_URI)
 
@@ -120,9 +123,9 @@ const resolvers = {
       return person.save()
     },
     editNumber: async (root, args) => {
-      const person = await Person.findOne({ name: args.name })
-      person.phone = args.phone
-      return person.save()
+      const person = await Person.findOneAndUpdate({ name: args.name }, {phone: args.phone}, {new:true})
+      //person.phone = args.phone
+      return person //person.save()
     },
 	createUser: (root, args) => {
 		const user = new User({ username: args.username })

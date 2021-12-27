@@ -1,0 +1,71 @@
+mutation addnew {
+  addPerson(name: "magaly", city:"lima" ,phone: "343334", street:"calle 13") {
+    name  ,
+    phone,
+    address {
+      street
+    }
+  }
+}
+
+mutation addUser {
+  createUser(username: "magaly") {
+   		username,
+    	friends { name }
+  }
+}
+
+mutation signing{
+  login(username:"magaly", password:"secret"){
+    value
+  }
+}
+
+query getall{
+  	allPersons{
+      name
+     
+    }
+  
+}
+
+query getallUsers{
+  	allUsers{
+      
+      username,
+      friends{
+        name
+      }
+    }
+  
+}
+
+
+
+mutation addFriend {
+  addAsFriend(name: "mamap") {
+   		username,
+    	friends { name }
+  }
+}
+
+
+query loggedUser{
+  me {
+    username
+    friends{
+      name
+      phone
+    }
+  }
+}
+
+
+query	findOneUser{
+  findUser(username: "magaly"){
+    username,
+    friends{
+    	name
+    }
+  }
+}
