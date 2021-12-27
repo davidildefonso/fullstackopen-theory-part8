@@ -5,6 +5,7 @@ export const typeDefs = gql`
     name: String!
     phone: String
     address: Address!
+	friendOf: [Person!]!
     id: ID!
   }
   type Address {
