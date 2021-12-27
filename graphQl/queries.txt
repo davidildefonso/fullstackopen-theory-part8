@@ -1,3 +1,10 @@
+subscription subs{
+  personAdded{
+    name,
+    phone
+  }
+}
+
 mutation addnew {
   addPerson(name: "magaly", city:"lima" ,phone: "343334", street:"calle 13") {
     name  ,

@@ -1,11 +1,26 @@
-import { ApolloServer, UserInputError, gql, AuthenticationError }  from 'apollo-server'
-import {  ApolloServerPluginLandingPageGraphQLPlayground} from "apollo-server-core";
+import { ApolloServer,  }  from 'apollo-server-express'
+import {  ApolloServerPluginLandingPageGraphQLPlayground, ApolloServerPluginDrainHttpServer  } from "apollo-server-core";
 import { 	v1 as uuid } from 'uuid'
+import express from 'express';
+import http from 'http';
 import  mongoose from 'mongoose'
-import Person from './models/person.js'
+
 import User from './models/user.js'
 import jwt from 'jsonwebtoken'
 import  dotenv from 'dotenv'
+import { createServer } from 'http';
+import { SubscriptionServer } from 'subscriptions-transport-ws';
+
+import { createRequire } from 'module'
+const require = createRequire(import.meta.url);
+const  { makeExecutableSchema }  = require('@graphql-tools/schema')
+const {subscribe  , execute}  = require('graphql')
+
+import {typeDefs} from './typeDefs.js'
+import {resolvers} from './resolvers.js'
+
+
+
 
 
 dotenv.config()
@@ -20,182 +35,68 @@ mongoose.connect(MONGODB_URI)
     console.log('connected to MongoDB')
   })
   .catch((error) => {
-    console.log('error connection to MongoDB:', error.message)
+    console.log('error connection to MongoDB:', error.message)	
   })
 
 
 
-const typeDefs = gql`
-  type Person {
-    name: String!
-    phone: String
-    address: Address!
-    id: ID!
-  }
-  type Address {
-    street: String!
-    city: String! 
-  }
-  
-  enum YesNo {
-    YES
-    NO
-  }
-  type User {
-    username: String!
-    friends: [Person!]!
-    id: ID!
-  }
-  
-  type Token {
-    value: String!
-  }
-  type Query {
-    personCount: Int!
-    allPersons(phone: YesNo): [Person!]!
-	allUsers: [User!]!
-    findPerson(name: String!): Person
-	findUser(username: String!): User
-    me: User
-  }
-  type Mutation {
-    addPerson(
-      name: String!
-      phone: String
-      street: String!
-      city: String!
-    ): Person
 
-    editNumber(
-      name: String!
-      phone: String!
-    ): Person
+async function startApolloServer(typeDefs, resolvers) {  
+	const app = express();
+	const httpServer = http.createServer(app);
+	const PORT = 4000;	
 
-    createUser(
-      username: String!
-    ): User
-
-    login(
-      username: String!
-      password: String!
-    ): Token
-
-    addAsFriend(
-      name: String!
-    ): User
-  }  
-`
-
-
-
-const resolvers = {
-  Query: {
-    personCount: () => Person.collection.countDocuments(),
-    allPersons: async (root, args) => {
-      	if (!args.phone) {
-			return await Person.find({})
-		}
-    	return await Person.find({ phone: { $exists: args.phone === 'YES' } })
-    },
-    findPerson: async (root, args) =>  await Person.findOne({ name: args.name }),
-	findUser: async (root, args) =>  await User.findOne({ username: args.username }).populate('friends'),
-	allUsers: async (root, args) => {  
-
-		const users =await User.find({ }).populate('friends')		
-		return users   
-    	
-    },
-	me: (root, args, context) => {
-		return context.currentUser
-	}
-  },
-  Person: {
-    address: (root) => {
-      return { 
-        street: root.street,
-        city: root.city
-      }
-    }
-  },
-   Mutation: {
-    addPerson: (root, args) => {
-      const person = new Person({ ...args })
-      return person.save()
-    },
-    editNumber: async (root, args) => {
-      const person = await Person.findOneAndUpdate({ name: args.name }, {phone: args.phone}, {new:true})
-      //person.phone = args.phone
-      return person //person.save()
-    },
-	createUser: (root, args) => {
-		const user = new User({ username: args.username })
-
-		return user.save()
-		.catch(error => {
-			throw new UserInputError(error.message, {
-				invalidArgs: args,
-			})
-		})
-	},
-	login: async (root, args) => {
-		const user = await User.findOne({ username: args.username })
-
-		if ( !user || args.password !== 'secret' ) {
-			throw new UserInputError("wrong credentials")
-		}
-
-		const userForToken = {
-			username: user.username,
-			id: user._id,
-		}
-
-		return { value: jwt.sign(userForToken, JWT_SECRET) }
-	},
-	addAsFriend: async (root, args, { currentUser }) => {
-			
-		const nonFriendAlready = (person) => 
-			!currentUser.friends.map(f => f._id.toString()).includes(person._id.toString())
-
-		if (!currentUser) {
-			throw new AuthenticationError("not authenticated")
-		}
-
+	const schema = makeExecutableSchema({ typeDefs, resolvers });
 	
-		const person = await Person.findOne({ name: args.name })
-		console.log(nonFriendAlready(person), person._id, currentUser.friends.map(f => f._id))
-		if(nonFriendAlready(person)){
-			currentUser.friends = currentUser.friends.concat(person)		
-			await User.findByIdAndUpdate( currentUser._id,  currentUser)
-		
+	const server = new ApolloServer({
+		schema,
+		plugins: [
+			ApolloServerPluginLandingPageGraphQLPlayground(),
+			ApolloServerPluginDrainHttpServer({ httpServer }),
+			{
+				async serverWillStart() {
+					return {
+						async drainServer() {
+							subscriptionServer.close();
+						}
+					};
+				}
+			}	
+		],
+		context: async ({ req }) => {
+			const auth = req ? req.headers.authorization : null
+			if (auth && auth.toLowerCase().startsWith('bearer ')) {
+			const decodedToken = jwt.verify(
+				auth.substring(7), JWT_SECRET
+			)
+			const currentUser = await User.findById(decodedToken.id).populate('friends')
+			return { currentUser }
+			}
 		}
-		
-		return await User.findById(currentUser._id).populate('friends')
+	})
 
+	await server.start();
+	server.applyMiddleware({ app });
 	
-	
-	
-  	},
-  }
+	const subscriptionServer = SubscriptionServer.create(
+		{ schema, execute, subscribe },
+		{ server: httpServer,  path: server.graphqlPath  }
+	);
+
+
+
+
+	httpServer.listen(PORT, () => {
+		console.log(
+			`🚀 Query endpoint ready at http://localhost:${PORT}${server.graphqlPath}`
+		);
+		console.log(
+			`🚀 Subscription endpoint ready at ws://localhost:${PORT}${server.graphqlPath}`
+		);
+	});
+
+
 }
 
-const server = new ApolloServer({
-  typeDefs,
-  resolvers,
-   plugins: [
-    ApolloServerPluginLandingPageGraphQLPlayground(),
-  ],
-  context: async ({ req }) => {
-    const auth = req ? req.headers.authorization : null
-    if (auth && auth.toLowerCase().startsWith('bearer ')) {
-      const decodedToken = jwt.verify(
-        auth.substring(7), JWT_SECRET
-      )
-      const currentUser = await User.findById(decodedToken.id).populate('friends')
-      return { currentUser }
-    }
-  }
-})
 
-server.listen().then(({ url }) => {
-  console.log(`Server ready at ${url}`)
-}) 
+startApolloServer(typeDefs, resolvers)
